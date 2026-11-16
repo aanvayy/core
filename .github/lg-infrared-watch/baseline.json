@@ -1,0 +1,18 @@
+{
+  "release": "2026.11.1",
+  "reviewed_on": "2026-11-17",
+  "paths": {
+    "homeassistant/components/lg_infrared": {
+      "release": "960e5404ae0135443714ccc6512baf8a86e78cf391ec81a9291ca82e774f29ea",
+      "dev": "ec393c2713aaa45f2062e5a642976d1756e3751297944127d8341055d06c574d"
+    },
+    "homeassistant/components/infrared": {
+      "release": "7d546ba873d981d68948884e84d86bb4e33dacb98589e37070ea83e011924a51",
+      "dev": "0df5e925524abe951b27618a8fa7d3b06d5250c2db85c93baaa66b36b5f4fb7f"
+    },
+    "homeassistant/components/broadlink/infrared.py": {
+      "release": "b8ac8413e0480426eb88d103b772c14f0512aa40934cfea64567b7ee25d5ea36",
+      "dev": "b8ac8413e0480426eb88d103b772c14f0512aa40934cfea64567b7ee25d5ea36"
+    }
+  }
+}
