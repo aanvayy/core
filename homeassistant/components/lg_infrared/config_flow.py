@@ -10,6 +10,7 @@ from homeassistant.components.infrared import (
     async_get_emitters,
     async_get_receivers,
 )
+from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
@@ -26,6 +27,7 @@ from .const import (
     CONF_HVAC_MODES,
     CONF_INFRARED_ENTITY_ID,
     CONF_INFRARED_RECEIVER_ENTITY_ID,
+    CONF_TEMPERATURE_SENSOR,
     DOMAIN,
     LGDeviceType,
 )
@@ -74,6 +76,11 @@ def _ac_schema(hass: HomeAssistant) -> probatio.Schema:
     """Return the AC schema: emitter, optional receiver and supported modes."""
     return _infrared_entity_schema(hass, emitter_required=True).extend(
         {
+            probatio.Optional(CONF_TEMPERATURE_SENSOR): EntitySelector(
+                EntitySelectorConfig(
+                    domain="sensor", device_class=SensorDeviceClass.TEMPERATURE
+                )
+            ),
             probatio.Required(
                 CONF_HVAC_MODES, default=_DEFAULT_HVAC_MODES
             ): probatio.All(
@@ -86,7 +93,7 @@ def _ac_schema(hass: HomeAssistant) -> probatio.Schema:
                     )
                 ),
                 probatio.Length(min=1, msg="no_hvac_modes"),
-            )
+            ),
         }
     )
 

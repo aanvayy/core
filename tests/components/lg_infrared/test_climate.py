@@ -55,11 +55,17 @@ from homeassistant.components.lg_infrared.climate import (
     FAN_MEDIUM_LOW,
     FAN_QUIET,
 )
-from homeassistant.components.lg_infrared.const import LGDeviceType
+from homeassistant.components.lg_infrared.const import (
+    CONF_HVAC_MODES,
+    CONF_TEMPERATURE_SENSOR,
+    LGDeviceType,
+)
 from homeassistant.const import (
     ATTR_ENTITY_ID,
     ATTR_TEMPERATURE,
+    ATTR_UNIT_OF_MEASUREMENT,
     STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
     Platform,
     UnitOfTemperature,
 )
@@ -74,6 +80,11 @@ from homeassistant.util.unit_system import (
 )
 
 _CLIMATE_ENTITY_ID = "climate.lg_ac"
+_TEMPERATURE_ENTITY_ID = "sensor.room_temperature"
+_TEMPERATURE_ENTRY_DATA = {
+    CONF_HVAC_MODES: [HVACMode.COOL, HVACMode.DRY],
+    CONF_TEMPERATURE_SENSOR: _TEMPERATURE_ENTITY_ID,
+}
 _STORED_CLIMATE_DATA = {
     "native_current_temperature": None,
     "native_target_temperature": 25.0,
@@ -1170,3 +1181,118 @@ async def test_receiver_updates_swing_from_fixed_code(
     state = hass.states.get(_CLIMATE_ENTITY_ID)
     assert state is not None
     assert state.attributes[attribute] == expected
+
+
+@pytest.mark.parametrize("extra_entry_data", [_TEMPERATURE_ENTRY_DATA])
+@pytest.mark.parametrize(
+    ("value", "unit", "expected"),
+    [
+        pytest.param("26.4", UnitOfTemperature.CELSIUS, 26.4, id="celsius"),
+        pytest.param("77", UnitOfTemperature.FAHRENHEIT, 25, id="fahrenheit"),
+        pytest.param("298.15", UnitOfTemperature.KELVIN, 25, id="kelvin"),
+    ],
+)
+async def test_external_temperature_updates_and_initial_read(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_infrared_emitter_entity: MockInfraredEmitterEntity,
+    value: str,
+    unit: UnitOfTemperature,
+    expected: float,
+) -> None:
+    """Read live measurements and the initial measurement after reload without IR."""
+    assert hass.states.get(_CLIMATE_ENTITY_ID).attributes["current_temperature"] is None
+    hass.states.async_set(
+        _TEMPERATURE_ENTITY_ID, value, {ATTR_UNIT_OF_MEASUREMENT: unit}
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(_CLIMATE_ENTITY_ID).attributes[
+        "current_temperature"
+    ] == pytest.approx(expected)
+
+    await hass.config_entries.async_reload(init_integration.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get(_CLIMATE_ENTITY_ID).attributes[
+        "current_temperature"
+    ] == pytest.approx(expected)
+    assert not mock_infrared_emitter_entity.send_command_calls
+
+
+@pytest.mark.parametrize("extra_entry_data", [_TEMPERATURE_ENTRY_DATA])
+@pytest.mark.parametrize(
+    ("value", "unit"),
+    [
+        pytest.param(STATE_UNKNOWN, UnitOfTemperature.CELSIUS, id="unknown"),
+        pytest.param(STATE_UNAVAILABLE, UnitOfTemperature.CELSIUS, id="unavailable"),
+        pytest.param("nan", UnitOfTemperature.CELSIUS, id="nan"),
+        pytest.param("inf", UnitOfTemperature.CELSIUS, id="infinity"),
+        pytest.param("-inf", UnitOfTemperature.CELSIUS, id="negative-infinity"),
+        pytest.param("invalid", UnitOfTemperature.CELSIUS, id="nonnumeric"),
+        pytest.param("25", None, id="missing-unit"),
+        pytest.param("25", "%", id="unsupported-unit"),
+    ],
+)
+@pytest.mark.usefixtures("init_integration")
+async def test_external_temperature_invalid_and_recovery(
+    hass: HomeAssistant,
+    mock_infrared_emitter_entity: MockInfraredEmitterEntity,
+    value: str,
+    unit: str | None,
+) -> None:
+    """A lost measurement clears temperature without disabling AC controls."""
+    hass.states.async_set(
+        _TEMPERATURE_ENTITY_ID,
+        "26",
+        {ATTR_UNIT_OF_MEASUREMENT: UnitOfTemperature.CELSIUS},
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(_CLIMATE_ENTITY_ID).attributes["current_temperature"] == 26
+
+    hass.states.async_set(
+        _TEMPERATURE_ENTITY_ID, value, {ATTR_UNIT_OF_MEASUREMENT: unit}
+    )
+    await hass.async_block_till_done()
+    state = hass.states.get(_CLIMATE_ENTITY_ID)
+    assert state.state == HVACMode.OFF
+    assert state.attributes["current_temperature"] is None
+
+    hass.states.async_set(
+        _TEMPERATURE_ENTITY_ID,
+        "27",
+        {ATTR_UNIT_OF_MEASUREMENT: UnitOfTemperature.CELSIUS},
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(_CLIMATE_ENTITY_ID).attributes["current_temperature"] == 27
+    assert not mock_infrared_emitter_entity.send_command_calls
+
+
+@pytest.mark.parametrize("extra_entry_data", [_TEMPERATURE_ENTRY_DATA])
+async def test_external_temperature_removal_and_unload(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_infrared_emitter_entity: MockInfraredEmitterEntity,
+) -> None:
+    """Handle sensor removal and unregister its listener on integration unload."""
+    hass.states.async_set(
+        _TEMPERATURE_ENTITY_ID,
+        "26",
+        {ATTR_UNIT_OF_MEASUREMENT: UnitOfTemperature.CELSIUS},
+    )
+    await hass.async_block_till_done()
+    hass.states.async_remove(_TEMPERATURE_ENTITY_ID)
+    await hass.async_block_till_done()
+    state = hass.states.get(_CLIMATE_ENTITY_ID)
+    assert state.state == HVACMode.OFF
+    assert state.attributes["current_temperature"] is None
+
+    assert await hass.config_entries.async_unload(init_integration.entry_id)
+    unloaded_state = hass.states.get(_CLIMATE_ENTITY_ID)
+    assert unloaded_state.state == STATE_UNAVAILABLE
+    hass.states.async_set(
+        _TEMPERATURE_ENTITY_ID,
+        "27",
+        {ATTR_UNIT_OF_MEASUREMENT: UnitOfTemperature.CELSIUS},
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(_CLIMATE_ENTITY_ID) is unloaded_state
+    assert not mock_infrared_emitter_entity.send_command_calls

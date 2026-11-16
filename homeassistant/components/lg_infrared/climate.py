@@ -1,6 +1,7 @@
 """Climate platform for LG IR integration — LG AC."""
 
 from dataclasses import dataclass
+import math
 from typing import Any, Self, override
 
 from infrared_protocols.codes.lg.ac import LGACCode
@@ -36,18 +37,28 @@ from homeassistant.components.infrared import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     ATTR_TEMPERATURE,
+    ATTR_UNIT_OF_MEASUREMENT,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
     UnitOfTemperature,
 )
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import (
+    Event,
+    EventStateChangedData,
+    HomeAssistant,
+    State,
+    callback,
+)
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .const import (
     CONF_DEVICE_TYPE,
     CONF_HVAC_MODES,
     CONF_INFRARED_ENTITY_ID,
     CONF_INFRARED_RECEIVER_ENTITY_ID,
+    CONF_TEMPERATURE_SENSOR,
     LGDeviceType,
 )
 from .entity import LgIrEntity
@@ -193,6 +204,8 @@ class LgAcClimateEntity(LgIrEntity, InfraredEmitterConsumerEntity, RestoreClimat
         """Initialize LG AC climate entity."""
         super().__init__(entry, unique_id_suffix="climate", device_name="LG AC")
         self._infrared_emitter_entity_id = emitter_entity_id
+        self._temperature_sensor = entry.data.get(CONF_TEMPERATURE_SENSOR)
+        self._attr_native_current_temperature = None
 
         configured_modes = entry.data.get(
             CONF_HVAC_MODES, [HVACMode.COOL, HVACMode.DRY]
@@ -223,6 +236,18 @@ class LgAcClimateEntity(LgIrEntity, InfraredEmitterConsumerEntity, RestoreClimat
     async def async_added_to_hass(self) -> None:
         """Restore the assumed state, as infrared cannot read it back from the AC."""
         await super().async_added_to_hass()
+
+        if self._temperature_sensor:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass,
+                    [self._temperature_sensor],
+                    self._async_temperature_changed,
+                )
+            )
+            self._update_external_temperature(
+                self.hass.states.get(self._temperature_sensor)
+            )
 
         last_extra_data = await self.async_get_last_extra_data()
         if (
@@ -259,6 +284,29 @@ class LgAcClimateEntity(LgIrEntity, InfraredEmitterConsumerEntity, RestoreClimat
             swing_h := last_state.attributes.get(ATTR_SWING_HORIZONTAL_MODE)
         ) in _HA_SWING_H_TO_LIB:
             self._attr_swing_horizontal_mode = swing_h
+
+    @callback
+    def _async_temperature_changed(self, event: Event[EventStateChangedData]) -> None:
+        """Publish sensor changes without transmitting any IR commands."""
+        self._update_external_temperature(event.data["new_state"])
+        self.async_write_ha_state()
+
+    @callback
+    def _update_external_temperature(self, state: State | None) -> None:
+        """Read a finite sensor value in the climate's native Celsius unit."""
+        self._attr_native_current_temperature = None
+        if state is None:
+            return
+        try:
+            value = float(state.state)
+            unit = state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+            if not math.isfinite(value) or unit not in TemperatureConverter.VALID_UNITS:
+                return
+            self._attr_native_current_temperature = TemperatureConverter.convert(
+                value, unit, UnitOfTemperature.CELSIUS
+            )
+        except TypeError, ValueError:
+            return
 
     @property
     @override

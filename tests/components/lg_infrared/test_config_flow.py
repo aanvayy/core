@@ -20,6 +20,7 @@ from homeassistant.components.lg_infrared.const import (
     CONF_HVAC_MODES,
     CONF_INFRARED_ENTITY_ID,
     CONF_INFRARED_RECEIVER_ENTITY_ID,
+    CONF_TEMPERATURE_SENSOR,
     DOMAIN,
     LGDeviceType,
 )
@@ -211,7 +212,10 @@ async def test_user_flow_tv_title_from_entity_name(
 
 
 @pytest.mark.usefixtures("mock_infrared_emitter_entity")
-async def test_user_flow_ac_success(hass: HomeAssistant) -> None:
+@pytest.mark.parametrize("sensor_data", [{}, {CONF_TEMPERATURE_SENSOR: "sensor.room"}])
+async def test_user_flow_ac_success(
+    hass: HomeAssistant, sensor_data: dict[str, str]
+) -> None:
     """Test successful AC config flow with default modes (cool + dry)."""
     result = await _async_start_flow(hass, LGDeviceType.AC)
 
@@ -223,6 +227,7 @@ async def test_user_flow_ac_success(hass: HomeAssistant) -> None:
         user_input={
             CONF_INFRARED_ENTITY_ID: mock_infrared_emitter_entity_id,
             CONF_HVAC_MODES: [HVACMode.COOL, HVACMode.DRY],
+            **sensor_data,
         },
     )
 
@@ -232,6 +237,7 @@ async def test_user_flow_ac_success(hass: HomeAssistant) -> None:
         CONF_DEVICE_TYPE: LGDeviceType.AC,
         CONF_INFRARED_ENTITY_ID: mock_infrared_emitter_entity_id,
         CONF_HVAC_MODES: [HVACMode.COOL, HVACMode.DRY],
+        **sensor_data,
     }
     assert result["result"].unique_id is None
 
@@ -593,3 +599,40 @@ async def test_reconfigure_flow_no_infrared_emitters(
 
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "no_infrared_emitters"
+
+
+@pytest.mark.parametrize("device_type", [LGDeviceType.AC])
+@pytest.mark.parametrize("has_receiver", [False])
+@pytest.mark.parametrize(
+    "extra_entry_data",
+    [{CONF_HVAC_MODES: [HVACMode.COOL], CONF_TEMPERATURE_SENSOR: "sensor.original"}],
+)
+@pytest.mark.parametrize(
+    "sensor_data", [{}, {CONF_TEMPERATURE_SENSOR: "sensor.replacement"}]
+)
+async def test_reconfigure_temperature_sensor(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    sensor_data: dict[str, str],
+) -> None:
+    """Suggest the selected sensor and allow replacing or clearing it."""
+    result = await init_integration.start_reconfigure_flow(hass)
+    assert (
+        get_schema_suggested_value(
+            result["data_schema"].schema, CONF_TEMPERATURE_SENSOR
+        )
+        == "sensor.original"
+    )
+    data = {
+        CONF_INFRARED_ENTITY_ID: mock_infrared_emitter_entity_id,
+        CONF_HVAC_MODES: [HVACMode.COOL],
+        **sensor_data,
+    }
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input=data
+    )
+    await hass.async_block_till_done()
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert init_integration.data == {CONF_DEVICE_TYPE: LGDeviceType.AC, **data}
+    assert init_integration.state is ConfigEntryState.LOADED
