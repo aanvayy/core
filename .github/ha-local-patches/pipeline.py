@@ -249,7 +249,7 @@ def install(core):
             "-e",
             "packages/hassfest",
             "-e",
-            "packages/pytest-homeassistant",
+            "packages/pytest-homeassistant[bluetooth,infrared,radio-frequency]",
             "-r",
             "requirements_test.txt",
             *dependencies,
