@@ -38,7 +38,13 @@ class PipelineTests(unittest.TestCase):
             "parent_commit": "a" * 40,
         }
         response = {"content": base64.b64encode(json.dumps(state).encode()).decode()}
-        for issues, expected in (([], "false"), ([{"body": pipeline.MARKER}], "true")):
+        for issues, expected in (
+            ([], "false"),
+            (
+                [{"body": pipeline.MARKER, "user": {"login": "github-actions[bot]"}}],
+                "true",
+            ),
+        ):
             with self.subTest(attention=bool(issues)):
                 with (
                     patch.object(
@@ -211,7 +217,7 @@ class PipelineTests(unittest.TestCase):
             published = pipeline.run("git", "rev-parse", pipeline.BRANCH, cwd=root)
             self.assertEqual(
                 pipeline.run("git", "show", "-s", "--format=%P", published, cwd=root),
-                f"{old_head} {upstream}",
+                old_head,
             )
             self.assertEqual(
                 (publisher / ".github/workflows/ci.yml").read_text(), "old workflow\n"
@@ -316,11 +322,24 @@ class PipelineTests(unittest.TestCase):
         ).hexdigest()
         issue = {
             "number": 1,
+            "user": {"login": "github-actions[bot]"},
             "body": f"{pipeline.MARKER}\n<!-- signature:{signature} -->",
         }
         with patch.object(pipeline, "api", return_value=[issue]) as api:
             pipeline.notify(failures, "2026.11.2")
         self.assertEqual(api.call_count, 1)
+
+    def test_lookalike_notifications_are_not_modified(self):
+        lookalikes = [
+            {"body": pipeline.MARKER, "user": {"login": "outside-user"}},
+            {
+                "body": pipeline.MARKER,
+                "user": {"login": "github-actions[bot]"},
+                "pull_request": {},
+            },
+        ]
+        for issue in lookalikes:
+            self.assertFalse(pipeline.is_attention_issue(issue))
 
     def test_publish_destination_is_restricted(self):
         for origin in (
@@ -351,7 +370,18 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(api.call_args.args[0], f"repos/{pipeline.OWNER_REPO}/issues")
         self.assertEqual(api.call_args.args[1]["assignees"], ["aanvayy"])
         with patch.object(
-            pipeline, "api", side_effect=[[{"number": 1, "body": pipeline.MARKER}], {}]
+            pipeline,
+            "api",
+            side_effect=[
+                [
+                    {
+                        "number": 1,
+                        "body": pipeline.MARKER,
+                        "user": {"login": "github-actions[bot]"},
+                    }
+                ],
+                {},
+            ],
         ) as api:
             pipeline.notify({"build": "success", "publish": "success"}, "2026.11.2")
         self.assertEqual(api.call_args.args[1], {"state": "closed"})

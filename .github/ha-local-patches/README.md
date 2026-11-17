@@ -24,8 +24,10 @@ This controller maintains `lg_infrared` (optional room sensor) and
   workflow-edit permission for the Actions token. The controller workflow lives
   separately on the fork's default branch.
 
-The managed branch is for builds, not an upstream PR. Its merge commits preserve
-both the previous maintained commit and new HA release as parents. Feature
+The managed branch is for builds, not an upstream PR. Each release snapshot preserves
+the previous tested commit as its parent and records the exact upstream release
+commit in metadata. Upstream history is not mirrored; shallow release fetches
+keep reconciliation efficient. Feature
 submission still requires the owner's review; no upstream PR is auto-created.
 
 ## Alerts and recovery

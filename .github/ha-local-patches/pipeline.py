@@ -27,6 +27,15 @@ PIPELINE_VERSION = 1
 MARKER = "<!-- ha-local-patches-attention -->"
 
 
+def is_attention_issue(issue):
+    """Only manage this workflow bot's own issues, never user PRs or lookalikes."""
+    return (
+        MARKER in (issue.get("body") or "")
+        and "pull_request" not in issue
+        and issue.get("user", {}).get("login") == "github-actions[bot]"
+    )
+
+
 def run(*args, cwd, input=None, trim=True):
     """Run fixed commands without shell interpolation."""
     try:
@@ -100,7 +109,7 @@ def plan(force=False):
         "parent_commit"
     )
     attention = any(
-        MARKER in (issue.get("body") or "")
+        is_attention_issue(issue)
         for issue in api(f"repos/{OWNER_REPO}/issues?state=open&per_page=100")
     )
     needed = (
@@ -404,8 +413,6 @@ def publish(core, destination):
         tree,
         "-p",
         old_head,
-        "-p",
-        upstream,
         "-m",
         f"Maintain tested local patches for HA {metadata['upstream_tag']}",
         cwd=core,
@@ -425,9 +432,7 @@ def notify(results, tag):
         json.dumps({"tag": tag, "failures": failed}, sort_keys=True).encode()
     ).hexdigest()
     issues = api(f"repos/{OWNER_REPO}/issues?state=open&per_page=100")
-    existing = next(
-        (issue for issue in issues if MARKER in (issue.get("body") or "")), None
-    )
+    existing = next((issue for issue in issues if is_attention_issue(issue)), None)
     if not failed:
         if existing:
             api(
