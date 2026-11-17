@@ -80,10 +80,7 @@ jobs:
         run: python3 controller/.github/ha-local-patches/pipeline.py install
       - name: Generate English translations
         working-directory: core
-        run: |
-          for domain in lg_infrared panasonic_viera; do
-            .venv/bin/python -m script.translations develop --integration "$domain"
-          done
+        run: .venv/bin/python -m script.translations develop --all
       - name: Check integration code
         working-directory: core
         run: |
