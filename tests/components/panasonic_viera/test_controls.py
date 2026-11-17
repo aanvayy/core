@@ -55,7 +55,8 @@ async def test_named_inputs(hass: HomeAssistant, mock_remote: Mock) -> None:
     state = hass.states.get(PLAYER)
     assert state.attributes[ATTR_INPUT_SOURCE_LIST] == list(SOURCES)
     assert ATTR_INPUT_SOURCE not in state.attributes
-    assert state.attributes[ATTR_ASSUMED_STATE]
+    assert state.state == "on"
+    assert not state.attributes.get(ATTR_ASSUMED_STATE, False)
     assert (
         state.attributes[ATTR_SUPPORTED_FEATURES]
         & MediaPlayerEntityFeature.SELECT_SOURCE
@@ -166,6 +167,7 @@ async def test_off_input_never_wakes_tv(hass: HomeAssistant, mock_remote: Mock) 
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     assert hass.states.get(PLAYER).state == "off"
+    assert not hass.states.get(PLAYER).attributes.get(ATTR_ASSUMED_STATE, False)
     assert hass.states.get(PLAYER).attributes[ATTR_INPUT_SOURCE_LIST] == list(SOURCES)
     assert hass.states.get("button.panasonic_viera_tv_up").state == "unavailable"
     with pytest.raises(HomeAssistantError):

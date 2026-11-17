@@ -75,7 +75,6 @@ class PanasonicVieraTVEntity(MediaPlayerEntity):
     def __init__(self, remote, name, device_info, mac=None) -> None:
         """Initialize the entity."""
         self._remote = remote
-        self._attr_assumed_state = remote.source_is_assumed
         if device_info is not None:
             self._attr_device_info = DeviceInfo(
                 identifiers={(DOMAIN, device_info[ATTR_UDN])},
