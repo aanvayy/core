@@ -25,5 +25,61 @@
         "title": "Set up your TV"
       }
     }
+  },
+  "entity": {
+    "button": {
+      "back": {
+        "name": "[%key:common::entity::button::back::name%]"
+      },
+      "down": {
+        "name": "[%key:common::entity::button::down::name%]"
+      },
+      "input": {
+        "name": "[%key:common::entity::button::input::name%]"
+      },
+      "left": {
+        "name": "[%key:common::entity::button::left::name%]"
+      },
+      "menu": {
+        "name": "[%key:common::entity::button::menu::name%]"
+      },
+      "ok": {
+        "name": "[%key:common::entity::button::ok::name%]"
+      },
+      "right": {
+        "name": "[%key:common::entity::button::right::name%]"
+      },
+      "up": {
+        "name": "[%key:common::entity::button::up::name%]"
+      }
+    }
+  },
+  "exceptions": {
+    "command_failed": {
+      "message": "The TV did not accept the network command."
+    },
+    "invalid_source": {
+      "message": "The requested input is not configured."
+    },
+    "tv_off": {
+      "message": "Turn on the TV before sending navigation or input commands."
+    }
+  },
+  "options": {
+    "error": {
+      "invalid_input_sources": "Map each nonempty input name to TV, HDMI1, HDMI2, HDMI3 or HDMI4."
+    },
+    "step": {
+      "init": {
+        "data": {
+          "input_sources": "Named input commands"
+        },
+        "data_description": {
+          "input_sources": "For example, map Apple TV to HDMI2 and Cast to HDMI3. Only TV and HDMI1–HDMI4 commands are accepted."
+        },
+        "description": "Optional named inputs for TVs without input discovery. Selections show the last successful command; handset changes cannot be detected. Leave empty to use the TV’s reported inputs.",
+        "title": "Input sources"
+      }
+    }
   }
 }

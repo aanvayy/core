@@ -13,7 +13,8 @@ import probatio
 from homeassistant.components.media_player import MediaPlayerState, MediaType
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_MAC, CONF_NAME, CONF_PORT, Platform
-from homeassistant.core import Context, HomeAssistant
+from homeassistant.core import Context, HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.device_registry import format_mac
 from homeassistant.helpers.script import Script
@@ -24,10 +25,12 @@ from .const import (
     ATTR_UDN,
     CONF_APP_ID,
     CONF_ENCRYPTION_KEY,
+    CONF_INPUT_SOURCES,
     CONF_ON_ACTION,
     DEFAULT_NAME,
     DEFAULT_PORT,
     DOMAIN,
+    INPUT_COMMANDS,
 )
 
 type PanasonicVieraConfigEntry = ConfigEntry[Remote]
@@ -55,7 +58,7 @@ CONFIG_SCHEMA = probatio.Schema(
     extra=probatio.ALLOW_EXTRA,
 )
 
-PLATFORMS = [Platform.MEDIA_PLAYER, Platform.REMOTE]
+PLATFORMS = [Platform.BUTTON, Platform.MEDIA_PLAYER, Platform.REMOTE]
 
 
 def mac_from_udn(udn: str) -> str | None:
@@ -107,7 +110,14 @@ async def async_setup_entry(
         params["app_id"] = config[CONF_APP_ID]
         params["encryption_key"] = config[CONF_ENCRYPTION_KEY]
 
-    remote = Remote(hass, host, port, on_action, **params)
+    remote = Remote(
+        hass,
+        host,
+        port,
+        on_action,
+        input_sources=config_entry.options.get(CONF_INPUT_SOURCES),
+        **params,
+    )
     await remote.async_create_remote_control(during_setup=True)
 
     config_entry.runtime_data = remote
@@ -163,6 +173,7 @@ class Remote:
         on_action: Script | None = None,
         app_id: str | None = None,
         encryption_key: str | None = None,
+        input_sources: dict[str, str] | None = None,
     ) -> None:
         """Initialize the Remote class."""
         self._hass = hass
@@ -174,6 +185,9 @@ class Remote:
 
         self._app_id = app_id
         self._encryption_key = encryption_key
+        self._input_sources = input_sources or {}
+        self._state_listeners: set[Callable[[], None]] = set()
+        self._last_notified_state: tuple[MediaPlayerState | None, bool] = (None, False)
 
         self._control: RemoteControl | None = None
         self.state: MediaPlayerState | None = None
@@ -183,8 +197,40 @@ class Remote:
         self.playing: bool = True
         # Input selection relies on the optional PAC service of the TV.
         # None until probed, an empty list when the TV does not support it.
-        self.source_list: list[str] | None = None
+        self.source_list: list[str] | None = (
+            list(self._input_sources) if self._input_sources else None
+        )
         self.source: str | None = None
+
+    @property
+    def source_is_assumed(self) -> bool:
+        """Return whether inputs are explicitly mapped rather than reported."""
+        return bool(self._input_sources)
+
+    @callback
+    def async_add_state_listener(
+        self, listener: Callable[[], None]
+    ) -> Callable[[], None]:
+        """Subscribe to shared power/availability changes without extra polling."""
+        self._state_listeners.add(listener)
+
+        @callback
+        def remove_listener() -> None:
+            self._state_listeners.discard(listener)
+
+        return remove_listener
+
+    @callback
+    def _async_notify_state_listeners(self) -> None:
+        """Publish changes to entities sharing this connection."""
+        current = (self.state, self.available)
+        if current == self._last_notified_state:
+            return
+        self._last_notified_state = current
+        if self.source_is_assumed and self.state is not MediaPlayerState.ON:
+            self.source = None
+        for listener in tuple(self._state_listeners):
+            listener()
 
     async def async_create_remote_control(self, during_setup: bool = False) -> None:
         """Create remote control."""
@@ -210,6 +256,8 @@ class Remote:
             self._control = None
             self.state = MediaPlayerState.OFF
             self.available = self._on_action is not None
+        finally:
+            self._async_notify_state_listeners()
 
     async def async_update(self) -> None:
         """Update device data."""
@@ -229,6 +277,8 @@ class Remote:
     def _update_source(self) -> None:
         """Retrieve the available inputs and the current one, if supported."""
         assert self._control is not None
+        if self._input_sources:
+            return
         if self.source_list is None:
             try:
                 self.source_list = self._control.list_inputs()
@@ -241,6 +291,17 @@ class Remote:
 
     async def async_select_source(self, source: str) -> None:
         """Select the input of the TV."""
+        if self._input_sources:
+            if source not in self._input_sources:
+                raise ServiceValidationError(
+                    translation_domain=DOMAIN, translation_key="invalid_source"
+                )
+            self.source = None
+            await self.async_send_control_key(
+                INPUT_COMMANDS[self._input_sources[source]]
+            )
+            self.source = source
+            return
         assert self._control is not None
         await self._handle_errors(self._control.set_input, source)
         self.source = source
@@ -254,6 +315,22 @@ class Remote:
 
         assert self._control is not None
         await self._handle_errors(self._control.send_key, key)
+
+    async def async_send_control_key(self, key: Keys) -> None:
+        """Send a navigation/input key only while network control is online."""
+        if (
+            self.state is not MediaPlayerState.ON
+            or not self.available
+            or self._control is None
+        ):
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="tv_off"
+            )
+        await self.async_send_key(key)
+        if self.state is not MediaPlayerState.ON or not self.available:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="command_failed"
+            )
 
     async def async_turn_on(self, context: Context | None) -> None:
         """Turn on the TV."""
@@ -325,6 +402,9 @@ class Remote:
             self.state = MediaPlayerState.OFF
             self.available = self._on_action is not None
             return None
-        self.state = MediaPlayerState.ON
-        self.available = True
-        return result
+        else:
+            self.state = MediaPlayerState.ON
+            self.available = True
+            return result
+        finally:
+            self._async_notify_state_listeners()

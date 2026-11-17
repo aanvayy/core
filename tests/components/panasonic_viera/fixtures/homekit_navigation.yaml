@@ -1,0 +1,42 @@
+# Standard HA package: route HomeKit TV keys to the same device's VIERA remote.
+# No household IDs, power commands, polling or template helper entities.
+automation:
+  - id: panasonic_tv_homekit_navigation
+    alias: Panasonic TV - HomeKit navigation
+    description: Route supported HomeKit navigation keys to the matching VIERA remote.
+    mode: queued
+    max: 5
+    max_exceeded: silent
+    triggers:
+      - trigger: event
+        event_type: homekit_tv_remote_key_pressed
+    actions:
+      - variables:
+          media_entity: "{{ trigger.event.data.get('entity_id', '') }}"
+          key: "{{ trigger.event.data.get('key_name', '') }}"
+          commands:
+            arrow_up: UP
+            arrow_down: DOWN
+            arrow_left: LEFT
+            arrow_right: RIGHT
+            select: ENTER
+            back: BACK
+            exit: EXIT
+            information: INFO
+      - condition: template
+        value_template: >-
+          {{ media_entity in integration_entities('panasonic_viera')
+             and is_state(media_entity, 'on') and key in commands }}
+      - variables:
+          remotes: >-
+            {{ device_entities(device_id(media_entity))
+               | select('match', '^remote[.]')
+               | select('in', integration_entities('panasonic_viera')) | list }}
+      - condition: template
+        value_template: "{{ remotes | length == 1 }}"
+      - action: remote.send_command
+        target:
+          entity_id: "{{ remotes[0] }}"
+        data:
+          command: "{{ commands[key] }}"
+          num_repeats: 1

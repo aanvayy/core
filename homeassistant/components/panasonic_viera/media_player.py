@@ -75,6 +75,7 @@ class PanasonicVieraTVEntity(MediaPlayerEntity):
     def __init__(self, remote, name, device_info, mac=None) -> None:
         """Initialize the entity."""
         self._remote = remote
+        self._attr_assumed_state = remote.source_is_assumed
         if device_info is not None:
             self._attr_device_info = DeviceInfo(
                 identifiers={(DOMAIN, device_info[ATTR_UDN])},
@@ -191,7 +192,10 @@ class PanasonicVieraTVEntity(MediaPlayerEntity):
     @override
     async def async_select_source(self, source: str) -> None:
         """Select input source."""
-        await self._remote.async_select_source(source)
+        try:
+            await self._remote.async_select_source(source)
+        finally:
+            self.async_write_ha_state()
 
     @override
     async def async_media_stop(self) -> None:

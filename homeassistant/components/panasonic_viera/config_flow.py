@@ -8,8 +8,16 @@ from urllib.error import URLError
 from panasonic_viera import TV_TYPE_ENCRYPTED, RemoteControl, SOAPError
 import probatio
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlowWithReload,
+)
 from homeassistant.const import CONF_HOST, CONF_NAME, CONF_PIN, CONF_PORT
+from homeassistant.core import callback
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.selector import ObjectSelector
 
 from .const import (
     ATTR_DEVICE_INFO,
@@ -17,11 +25,13 @@ from .const import (
     ATTR_UDN,
     CONF_APP_ID,
     CONF_ENCRYPTION_KEY,
+    CONF_INPUT_SOURCES,
     CONF_ON_ACTION,
     DEFAULT_NAME,
     DEFAULT_PORT,
     DOMAIN,
     ERROR_INVALID_PIN_CODE,
+    INPUT_COMMANDS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -39,6 +49,13 @@ class PanasonicVieraConfigFlow(ConfigFlow, domain=DOMAIN):
     """Config flow for Panasonic Viera."""
 
     VERSION = 1
+
+    @staticmethod
+    @callback
+    @override
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlowWithReload:
+        """Configure optional named inputs for TVs without input discovery."""
+        return PanasonicVieraOptionsFlow()
 
     def __init__(self) -> None:
         """Initialize the Panasonic Viera config flow."""
@@ -177,3 +194,38 @@ class PanasonicVieraConfigFlow(ConfigFlow, domain=DOMAIN):
         # pylint: disable-next=home-assistant-unique-id-ip-based
         await self.async_set_unique_id(self._data[CONF_HOST])
         self._abort_if_unique_id_configured()
+
+
+class PanasonicVieraOptionsFlow(OptionsFlowWithReload):
+    """Configure explicit input commands without changing TV authentication."""
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Configure named inputs, or leave empty to use native discovery."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            try:
+                sources = probatio.Schema(
+                    {
+                        probatio.All(
+                            cv.string, str.strip, probatio.Length(min=1)
+                        ): probatio.In(INPUT_COMMANDS)
+                    }
+                )(user_input.get(CONF_INPUT_SOURCES, {}))
+            except probatio.Invalid:
+                errors["base"] = "invalid_input_sources"
+            else:
+                return self.async_create_entry(
+                    title="", data={CONF_INPUT_SOURCES: sources}
+                )
+        return self.async_show_form(
+            step_id="init",
+            data_schema=self.add_suggested_values_to_schema(
+                probatio.Schema(
+                    {probatio.Optional(CONF_INPUT_SOURCES): ObjectSelector()}
+                ),
+                self.config_entry.options,
+            ),
+            errors=errors,
+        )
