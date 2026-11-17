@@ -1,11 +1,11 @@
 {
-  "artifact_run_id": "44190883129",
-  "artifact_url": "https://github.com/aanvayy/core/actions/runs/44190883129/artifacts/14375219960",
-  "build_version": "2026.11.2.1",
-  "parent_commit": "310bc447d47c77335a9f13107274da3c2cf03b46",
-  "patch_sha256": "8435a2de66a18af3f91b890125ab04f320866638145a483f8e5ad25e6db37039",
+  "artifact_run_id": "44196230329",
+  "artifact_url": "https://github.com/aanvayy/core/actions/runs/44196230329/artifacts/14379456040",
+  "build_version": "2026.11.2.2",
+  "parent_commit": "e2e93b0604c7b84f945cd80e65b970e74fac7d3d",
+  "patch_sha256": "988f14132992f115ec0c072df166b64e8a4b35ddb202ede0e1e75f70259f9a70",
   "pipeline_version": 1,
-  "revision": 1,
+  "revision": 2,
   "upstream_commit": "ff5d56b825a0fb66b03d01bc297d49e206cdaba3",
   "upstream_tag": "2026.11.2"
 }
