@@ -229,13 +229,21 @@ def prepare(core, destination, tag):
 
 def install(core):
     """Install focused HA and test dependencies, not every HA integration."""
-    dependencies = []
-    for domain in (*DOMAINS, "homekit", "infrared", "broadlink"):
-        dependencies.extend(
-            json.loads(
-                (core / f"homeassistant/components/{domain}/manifest.json").read_text()
-            ).get("requirements", [])
+    dependencies = set()
+    # HomeKit imports camera/stream eagerly even for television-only tests.
+    pending = [*DOMAINS, "homekit", "infrared", "broadlink", "camera", "stream"]
+    visited = set()
+    while pending:
+        domain = pending.pop()
+        if domain in visited:
+            continue
+        visited.add(domain)
+        manifest = json.loads(
+            (core / f"homeassistant/components/{domain}/manifest.json").read_text()
         )
+        dependencies.update(manifest.get("requirements", []))
+        pending.extend(manifest.get("dependencies", []))
+        pending.extend(manifest.get("after_dependencies", []))
     run("uv", "venv", ".venv", cwd=core)
     subprocess.run(
         [
@@ -252,7 +260,7 @@ def install(core):
             "packages/pytest-homeassistant[bluetooth,infrared,radio-frequency]",
             "-r",
             "requirements_test.txt",
-            *dependencies,
+            *sorted(dependencies),
         ],
         cwd=core,
         check=True,
